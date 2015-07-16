@@ -17,7 +17,7 @@ fespace Xh(Th,P1); // Espacio de Elementos Finitos
 Xh un1,vn1,Hn1,ut,vt,Ht; // Incógnitas y funciones test
 Xh un, vn, Hn; // Valores de las incógnitas en la etapa anterior
 
-real k=0.001;
+real k=0.01;
 // real f=0;  // En principio, no tenemos en cuenta la aceleración de Coriolis;
 
 un=0.0; // Dato inicial para u (partimos del reposo)
@@ -34,6 +34,7 @@ func elevacionInicial = 1.0+cteAltura*exp(-(x-5.0)^2-(y-5.0)^2);
 Hn=elevacionInicial;
 
 real g=9.8;
+real nu=1.0; // Coeficiente de viscosidad (difusión)
 
 // macro grad(u) [dx(u),dy(u)] // Definimos una macro para el operador gradiente
 // macro div(u,v) dx(u)+dy(v) // Definimos una macro para el operador divergencia
@@ -58,11 +59,13 @@ problem ShallowWater([un1,vn1,Hn1], [ut,vt,Ht])=
 	    // (1) Ecuación para u
 	    (1/k)*un1*ut // Derivada en t
 	    + un*dx(un1)*ut + vn*dy(un1)*ut //Convección
+	    + nu*(dx(un1)*dx(ut) + dy(un1)*dy(ut)) // Difusión
 	    // -int2d(Th)f*vn1*ut //Coriolis
 
 	    // (2) Ecuación para v
 	    + (1/k)*vn1*vt // Derivada en t
 	    + vn*dx(vn1)*vt + vn*dy(vn1)*vt //Convección
+	    + nu*(dx(vn1)*dx(vt) + dy(vn1)*dy(vt)) // Difusión
 	    // -int2d(Th)f*un1*vt //Coriolis
 
 	    // (3) Ecuación para H
@@ -82,7 +85,7 @@ problem ShallowWater([un1,vn1,Hn1], [ut,vt,Ht])=
 
 	      // (2) Ecuación para v
 	      - (1.0/k)*vn*vt // Derivada en t
-	      + g*dx(Hn)*vt
+	      + g*dy(Hn)*vt
 	      // Elimino el siguiente término (fondo plano)
 	      //+ g*int2d(Th) // ALICIA: Lo mismo que antes
 
