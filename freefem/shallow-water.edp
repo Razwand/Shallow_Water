@@ -1,8 +1,16 @@
 // Shallow water equations 2d
 // Alicia Sánchez Rodríguez, Rafa Rodríguez Galván
 
-mesh Th=square(20, 20,       // Subintervalos en x, Subintervalos en y
-	       [10*x,10*y]); // Omega = [0,10]x[0,10] (por defecto sería [0,1]x[0,1])
+load "iovtk";
+
+// mesh Th=square(20, 20,       // Subintervalos en x, Subintervalos en y
+// 	       [10*x,10*y]); // Omega = [0,10]x[0,10] (por defecto sería [0,1]x[0,1])
+
+real R=10.0;
+border circle(t=0,2*pi){ x=5+R*cos(t); y=5+R*sin(t);};
+
+mesh Th = buildmesh(circle(100));
+plot(Th, wait=true);
 
 fespace Xh(Th,P1); // Espacio de Elementos Finitos
 
@@ -124,4 +132,5 @@ for (int iter=0; iter<numIter; iter++)
     real normal2H = sqrt(int2d(Th)(Hn1[]'*Hn1[]));
     cout << "Hn1 (L2 ntorm): " << normal2H << endl;
 
+    savevtk("test" + iter + ".vtk", Th, [un1,vn1,0], Hn1, dataname="Velocidad Elevacion");
   }
