@@ -1,0 +1,152 @@
+// Shallow water equations 2d
+// Alicia Sánchez Rodríguez, Rafa Rodríguez Galván
+
+load "iovtk";
+load "gmsh";
+
+// mesh Th=square(20, 20,       // Subintervalos en x, Subintervalos en y
+// 	       [10*x,10*y]); // Omega = [0,10]x[0,10] (por defecto sería [0,1]x[0,1])
+
+real R=10.0;
+// border circle(t=0,2*pi){ x=5+R*cos(t); y=5+R*sin(t);};
+//mesh Th=buildmesh(circle(100));
+
+mesh Th = gmshload("malla-oceano.msh");
+
+plot(Th, wait=true);
+
+fespace Xh(Th,P1); // Espacio de Elementos Finitos
+
+Xh un1,vn1,Hn1,ut,vt,Ht; // Incógnitas y funciones test
+Xh un, vn, Hn; // Valores de las incógnitas en la etapa anterior
+
+real k=0.0015;
+// real f=0;  // En principio, no tenemos en cuenta la aceleración de Coriolis;
+
+un=0.0; // Dato inicial para u (partimos del reposo)
+vn=0.0; // Dato inicial para v (partimos del reposo)
+
+// Voy a empezar definiendo una altura inicial del agua constante (más adelante lo complicamos)
+// Suponiendo fondo constante z=-1, si la superficie del agua está en z=0, entoces la altura es 1
+// Hn=1.0;
+
+// Aunque más adelante, lo suyo es definir una altura a través de una campana de Gauss,
+// similar a esto (o igual que en el artículo de S. Ferrari y F. Salieri)
+real cteAltura=0.2;
+// Función centrada en (longitud,latitud) = (15,36)
+func elevacionInicial = 1.0+cteAltura*exp(-(x+9.2)^2-(y-35.3)^2);
+Hn=elevacionInicial;
+
+real g=9.8;
+real nu=1.0; // Coeficiente de viscosidad (difusión)
+
+// macro grad(u) [dx(u),dy(u)] // Definimos una macro para el operador gradiente
+// macro div(u,v) dx(u)+dy(v) // Definimos una macro para el operador divergencia
+
+//
+// Defino un problema llamado "ShallowWater" donde:
+//   - Las incógnitas se definen como (el vector) [un1,vn1,Hn1]
+//   - Las funciones tests son (el vector) [ut, vt, Ht]
+//
+// Observaciones:
+//   - En esta versión, escribimos las ecuaciones para FONDO PLANO (Cushman Roisin, ecuaciones 7.17)
+//   - El esquema númerio en tiempo usado es: Euler, en concreto Euler semi-implícito.
+//     Es decir, para conseguir que el problema sea lineal, algunas incógnitas se dejan
+//     implícitas (se escriben en la etapa n+1) y otras se hacen explícitas (en la etapa n)
+//   - En la versión actual, no se tiene en cuenta la aceleración de Coriolis.
+//
+problem ShallowWaterVelocity([un1,vn1], [ut,vt])=
+
+  // Forma bilineal: a(U,V) donde U=[un1,vn1,Hn1] y V=[ut,vt,Ht]
+  // Aquí aparecen todos los términos de la forma (incógnita)*(funcion_test)
+  int2d(Th)(
+	    // (1) Ecuación para u
+	    (1/k)*un1*ut // Derivada en t
+	    + un*dx(un1)*ut + vn*dy(un1)*ut //Convección
+	    + nu*(dx(un1)*dx(ut) + dy(un1)*dy(ut)) // Difusión
+	    // -int2d(Th)f*vn1*ut //Coriolis
+
+	    // (2) Ecuación para v
+	    + (1/k)*vn1*vt // Derivada en t
+	    + vn*dx(vn1)*vt + vn*dy(vn1)*vt //Convección
+	    + nu*(dx(vn1)*dx(vt) + dy(vn1)*dy(vt)) // Difusión
+	    // -int2d(Th)f*un1*vt //Coriolis
+	    )
+
+  // Forma lineal, F(V) donde V=[ut,vt,Ht]
+  // Aquí aparecen todos los términos de la forma (valor_conocido)*(funcion_test)
+  + int2d(Th)(
+	      // (1) Ecuación para u
+	      - (1.0/k)*un*ut // Derivada en t
+	      + g*dx(Hn)*ut
+	      // Elimino el siguiente término (fondo plano)
+	      // + g*int2d(Th) // ALICIA: No sé qué poner en este último término: ¿sólamente aparece g por la integral de 1? Me haría falta ver las ecuaciones
+
+	      // (2) Ecuación para v
+	      - (1.0/k)*vn*vt // Derivada en t
+	      + g*dy(Hn)*vt
+	      // Elimino el siguiente término (fondo plano)
+	      //+ g*int2d(Th) // ALICIA: Lo mismo que antes
+	      )
+  ;
+// Condiciones de contorno Dirichlet en los cuatro lados del cuadrado
+// + on(1,2,3,4, un1=0, vn1=0, Hn1=elevacionInicial);
+
+problem ShallowWaterElevation(Hn1, Ht)=
+  // Forma bilineal:
+  // Aquí aparecen todos los términos de la forma (incógnita)*(funcion_test)
+  int2d(Th)(
+	    // Ecuación para H
+	    + (1/k)*Hn1*Ht
+	    - un*Hn1*dx(Ht) - vn*Hn1*dy(Ht) // Para evitar derivada del producto, integramos por partes
+	    // + (Hn1*Ht)(dx(un)+dy(vn)) + un*dx(Hn1)*Ht + vn*dy(Hn1)*Ht // Lo elimino (fondo plano)
+	    )
+  // Forma lineal.
+  // Aquí aparecen todos los términos de la forma (valor_conocido)*(funcion_test)
+  + int2d(Th)(
+	      // (3) Ecuación para H
+	      - (1.0/k)*Hn*Ht
+	      )
+  ;
+
+// Ya memos definido el problema variacional. Ahora vamos a hacer un bucle en tiempo (método de Euler)
+
+// Definimos el número de iteraciones que queramos (el instante final de tiempo será T = k*numIter)
+int numIter=500;
+
+for (int iter=0; iter<numIter; iter++)
+  {
+    real t = k*iter;
+    cout << "Solving iteration " << iter << " (time " << t << ")" << endl;
+
+    // Ahora, simplemente escribiendo el nombre del problema definido
+    // con "problem(...)", se calcula la solución (se resuelve el
+    // sistema de ecuaciones subyacente al método de elementos
+    // finitos)
+    ShallowWaterVelocity;  // Calcular un1, vn1
+    ShallowWaterElevation; // Calcular Hn1
+
+    // Si todo ha ido bien, ya tenemos la solución [un1,vn1,Hn1]. Por ejemplo, dibujamos
+    // el campo de velocidades (wait=1 es para que espere a pulsar una tecla)
+    // plot([un1,vn1], wait=0);
+
+    // Y también dibujamos H:
+    plot(Hn1, wait=0, value=1);
+
+    // Por último: es muy importante no olvidar preparar la siguiente iteración.
+    un = un1; // La velocidad actual será la de la etapa anterior
+    vn = vn1;
+    Hn = Hn1; // Y también la altura
+
+    //
+    // Imprimo algunos indicadores
+    //
+    // Energía cínética (norma L2 de la velocidad)
+    real energiaCinetica = sqrt( int2d(Th)(un1[]'*un1[] + vn1[]'*vn1[]) );
+    cout << "Kinetic energy: " << energiaCinetica << endl;
+    // Módulo (norma L2) de la altura en Omega
+    real normal2H = sqrt(int2d(Th)(Hn1[]'*Hn1[]));
+    cout << "Hn1 (L2 ntorm): " << normal2H << endl;
+
+    savevtk("test" + iter + ".vtk", Th, [un1,vn1,0], Hn1, dataname="Velocidad Elevacion");
+  }

@@ -1,0 +1,8 @@
+Para generar el fichero .msh a partir del .geo:
+
+$ gmsh -2 malla-oceano.geo -o malla-oceano.msh
+
+Para usar la malla en FreeFem++:
+
+load "gmsh";
+mesh Th = gmshload("malla-oceano.msh");
